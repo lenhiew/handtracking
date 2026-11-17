@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Common Nouns AR Quiz</title>
+    
+    <!-- Tailwind CSS for UI Layout -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts for Arcade styling -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe CDNs -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #111;
+            overflow: hidden;
+            font-family: 'Nunito', sans-serif;
+            touch-action: none; /* Prevent scroll on mobile touch */
+        }
+
+        .arcade-font {
+            font-family: 'Fredoka One', cursive;
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            /* Prevent image interaction */
+            pointer-events: none; 
+        }
+
+        /* Hidden video element for MediaPipe input */
+        #videoElement {
+            display: none;
+        }
+
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none; /* Let clicks pass to canvas if needed, though we use AR */
+        }
+
+        .menu-panel {
+            background: rgba(25, 30, 45, 0.85);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.6);
+            padding: 2.5rem;
+            border: 6px solid #FFCA3A;
+            text-align: center;
+            pointer-events: auto; /* Enable clicks inside panels */
+            max-width: 90%;
+            width: 500px;
+            color: white;
+            transition: opacity 0.3s ease;
+        }
+
+        .btn-primary {
+            background-color: #FF595E;
+            color: white;
+            border: 4px solid #D63D42;
+            padding: 14px 28px;
+            border-radius: 16px;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            box-shadow: 0 6px 0 #D63D42;
+        }
+
+        .btn-primary:hover {
+            background-color: #FF7276;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 0 #D63D42;
+        }
+
+        .btn-primary:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #D63D42;
+        }
+
+        .btn-primary:disabled {
+            background-color: #888;
+            border-color: #555;
+            box-shadow: 0 6px 0 #555;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .pulse {
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .review-list {
+            max-height: 250px;
+            overflow-y: auto;
+            text-align: left;
+            margin-top: 1rem;
+            padding-right: 10px;
+        }
+
+        .review-item {
+            background: rgba(255, 255, 255, 0.1);
+            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 8px;
+        }
+        
+        .review-item p {
+            margin: 0;
+            line-height: 1.4;
+        }
+        
+        /* Custom scrollbar for review list */
+        .review-list::-webkit-scrollbar { width: 8px; }
+        .review-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 4px; }
+        .review-list::-webkit-scrollbar-thumb { background: #FFCA3A; border-radius: 4px; }
+    </style>
+</head>
+<body>
+
+    <!-- Hidden Video Element for Webcam -->
+    <video id="videoElement" autoplay playsinline></video>
+
+    <!-- Main Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer">
+        
+        <!-- Start Menu -->
+        <div id="start-menu" class="menu-panel">
+            <h1 class="arcade-font text-5xl text-[#FFCA3A] mb-4 tracking-wider drop-shadow-md">Nouns POP!</h1>
+            <h2 class="text-2xl mb-4 font-bold text-[#8AC926]">Grade 4 - Common Nouns</h2>
+            
+            <div class="bg-black bg-opacity-30 rounded-xl p-4 mb-6 text-left">
+                <p class="mb-2">🎈 <strong>Goal:</strong> Pop the balloons carrying the <em>Common Noun</em> to answer the question.</p>
+                <p class="mb-2">🖐️ <strong>Controls:</strong> Hold your hand up to the camera.</p>
+                <p class="mb-2">🤏 <strong>Pinch:</strong> Bring your <strong>Thumb</strong> and <strong>Index Finger</strong> together to pop!</p>
+                <p>⏱️ <strong>Time:</strong> 60 Seconds. Build your combo!</p>
+            </div>
+
+            <p id="loading-text" class="text-yellow-400 font-bold mb-4 pulse">Requesting Camera & Loading AI...</p>
+            
+            <button id="start-btn" class="btn-primary arcade-font hidden w-full" disabled>
+                Play Now!
+            </button>
+        </div>
+
+        <!-- Results Menu (Hidden Initially) -->
+        <div id="results-menu" class="menu-panel hidden">
+            <h1 class="arcade-font text-4xl text-[#FFCA3A] mb-2 tracking-wider">Time's Up!</h1>
+            
+            <div class="flex justify-between items-center bg-black bg-opacity-40 p-4 rounded-xl mb-4">
+                <div class="text-center">
+                    <p class="text-sm text-gray-300 uppercase font-bold">Final Score</p>
+                    <p id="final-score" class="arcade-font text-3xl text-white">0</p>
+                </div>
+                <div class="text-center">
+                    <p class="text-sm text-gray-300 uppercase font-bold">Max Combo</p>
+                    <p id="max-combo" class="arcade-font text-3xl text-[#FF595E]">x0</p>
+                </div>
+            </div>
+
+            <h3 class="arcade-font text-xl text-left text-blue-300 border-b-2 border-blue-400 pb-1">Review:</h3>
+            <div id="review-list" class="review-list">
+                <!-- Review items injected here -->
+            </div>
+
+            <button id="restart-btn" class="btn-primary arcade-font w-full mt-6">
+                Play Again
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Game Logic -->
+    <script>
+        // --- Web Audio API Synthesizer ---
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playTone(freq, type, duration, vol) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        const SFX = {
+            pop: () => playTone(900, 'sine', 0.1, 0.3),
+            correct: () => {
+                playTone(523.25, 'sine', 0.1, 0.4); 
+                setTimeout(() => playTone(659.25, 'sine', 0.15, 0.4), 100);
+            },
+            wrong: () => playTone(250, 'square', 0.25, 0.3),
+            gameOver: () => {
+                playTone(400, 'sawtooth', 0.4, 0.3);
+                setTimeout(() => playTone(300, 'sawtooth', 0.6, 0.3), 300);
+            }
+        };
+
+        // --- Quiz Data (Grade 4 Common Nouns) ---
+        const allQuestions = [
+            { q: "Select the common noun for an animal.", options: [{t:"dog", c:true}, {t:"Snoopy", c:false}, {t:"run", c:false}, {t:"fast", c:false}] },
+            { q: "Which of these is a common noun?", options: [{t:"teacher", c:true}, {t:"Mr. Davis", c:false}, {t:"Tuesday", c:false}, {t:"France", c:false}] },
+            { q: "Find the common noun for a place.", options: [{t:"hospital", c:true}, {t:"Mt. Rushmore", c:false}, {t:"Texas", c:false}, {t:"sleep", c:false}] },
+            { q: "Choose the common noun.", options: [{t:"ocean", c:true}, {t:"Pacific", c:false}, {t:"Atlantic", c:false}, {t:"swim", c:false}] },
+            { q: "Identify the common noun.", options: [{t:"car", c:true}, {t:"Toyota", c:false}, {t:"Ford", c:false}, {t:"driving", c:false}] },
+            { q: "Which word is a common noun?", options: [{t:"book", c:true}, {t:"Harry Potter", c:false}, {t:"reading", c:false}, {t:"slowly", c:false}] },
+            { q: "Find the common noun.", options: [{t:"city", c:true}, {t:"New York", c:false}, {t:"Tokyo", c:false}, {t:"jump", c:false}] },
+            { q: "Select the common noun.", options: [{t:"school", c:true}, {t:"Lincoln Elem.", c:false}, {t:"Monday", c:false}, {t:"write", c:false}] },
+            { q: "Choose the common noun.", options: [{t:"river", c:true}, {t:"Amazon", c:false}, {t:"Nile", c:false}, {t:"wet", c:false}] },
+            { q: "Identify the common noun.", options: [{t:"planet", c:true}, {t:"Mars", c:false}, {t:"Jupiter", c:false}, {t:"shiny", c:false}] }
+        ];
+
+        function shuffleArray(array) {
+            const arr = [...array];
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        // --- Game State & Variables ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const videoElement = document.getElementById('videoElement');
+        
+        let gameState = 'MENU'; // MENU, PLAYING, GAMEOVER
+        let score = 0;
+        let combo = 1;
+        let maxCombo = 1;
+        let timeLeft = 60;
+        let lastFrameTime = 0;
+        
+        let currentQuestion = null;
+        let balloons = [];
+        let particles = [];
+        let floatingTexts = [];
+        let reviewHistory = [];
+        
+        let latestLandmarks = null;
+        let wasPinching = false;
+        
+        const balloonColors = ['#FF595E', '#FFCA3A', '#8AC926', '#1982C4', '#6A4C93'];
+
+        // --- Resize Handler ---
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Game Logic Functions ---
+        function loadNextQuestion() {
+            // Pick a random question
+            const qData = allQuestions[Math.floor(Math.random() * allQuestions.length)];
+            currentQuestion = qData;
+            
+            // Generate balloons
+            balloons = [];
+            const shuffledOptions = shuffleArray(qData.options);
+            const spacing = canvas.width / (shuffledOptions.length + 1);
+            
+            // Responsive balloon sizing based on screen width
+            const baseRadius = Math.min(canvas.width * 0.1, 70); 
+            
+            shuffledOptions.forEach((opt, index) => {
+                balloons.push({
+                    id: index,
+                    text: opt.t,
+                    isCorrect: opt.c,
+                    x: spacing * (index + 1),
+                    y: canvas.height + 100 + Math.random() * 150,
+                    radius: baseRadius,
+                    color: balloonColors[index % balloonColors.length],
+                    speedY: 2 + Math.random() * 2 + (score / 100) // Gradually speeds up
+                });
+            });
+        }
+
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 25; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: (Math.random() - 0.5) * 12,
+                    life: 1.0,
+                    color: color,
+                    size: Math.random() * 8 + 4
+                });
+            }
+        }
+
+        function spawnFloatingText(x, y, text, color) {
+            floatingTexts.push({ x, y, text, color, life: 1.0 });
+        }
+
+        function handleBalloonPop(balloon) {
+            SFX.pop();
+            
+            // Find correct answer text for history
+            const correctOpt = currentQuestion.options.find(o => o.c);
+            
+            if (balloon.isCorrect) {
+                SFX.correct();
+                createExplosion(balloon.x, balloon.y, balloon.color);
+                
+                const points = 10 * combo;
+                score += points;
+                spawnFloatingText(balloon.x, balloon.y, `+${points}`, '#8AC926');
+                
+                combo++;
+                if(combo > maxCombo) maxCombo = combo;
+
+                reviewHistory.push({
+                    q: currentQuestion.q,
+                    picked: balloon.text,
+                    correct: true
+                });
+                
+                // Load next question after short delay or immediately
+                loadNextQuestion();
+
+            } else {
+                SFX.wrong();
+                createExplosion(balloon.x, balloon.y, '#555555');
+                spawnFloatingText(balloon.x, balloon.y, "Oops!", '#FF595E');
+                combo = 1;
+
+                reviewHistory.push({
+                    q: currentQuestion.q,
+                    picked: balloon.text,
+                    correct: false,
+                    correctText: correctOpt.t
+                });
+
+                // Remove the wrong balloon to allow retrying
+                balloons = balloons.filter(b => b.id !== balloon.id);
+                
+                // If they popped all wrong ones somehow, load next
+                if(balloons.length === 0) {
+                    loadNextQuestion();
+                }
+            }
+        }
+
+        function startGame() {
+            initAudio();
+            document.getElementById('start-menu').classList.add('hidden');
+            document.getElementById('results-menu').classList.add('hidden');
+            
+            score = 0;
+            combo = 1;
+            maxCombo = 1;
+            timeLeft = 60;
+            reviewHistory = [];
+            particles = [];
+            floatingTexts = [];
+            lastFrameTime = performance.now();
+            
+            loadNextQuestion();
+            gameState = 'PLAYING';
+            gameLoop(performance.now());
+        }
+
+        function showResults() {
+            gameState = 'GAMEOVER';
+            SFX.gameOver();
+            
+            document.getElementById('final-score').innerText = score;
+            document.getElementById('max-combo').innerText = 'x' + maxCombo;
+            
+            const listObj = document.getElementById('review-list');
+            listObj.innerHTML = '';
+            
+            if(reviewHistory.length === 0) {
+                listObj.innerHTML = '<p class="text-gray-400 italic">No questions answered.</p>';
+            } else {
+                reviewHistory.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'review-item';
+                    if(item.correct) {
+                        div.innerHTML = `<p class="text-sm font-bold text-gray-300">${item.q}</p>
+                                         <p class="text-green-400 text-lg">✅ ${item.picked}</p>`;
+                    } else {
+                        div.innerHTML = `<p class="text-sm font-bold text-gray-300">${item.q}</p>
+                                         <p class="text-red-400 text-lg">❌ ${item.picked} <span class="text-sm text-gray-400">(Correct: ${item.correctText})</span></p>`;
+                    }
+                    listObj.appendChild(div);
+                });
+            }
+            
+            document.getElementById('results-menu').classList.remove('hidden');
+        }
+
+        // --- MediaPipe Hand Tracking Setup ---
+        let isCameraReady = false;
+        let isModelReady = false;
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults((results) => {
+            if (!isModelReady) {
+                isModelReady = true;
+                checkReadyState();
+            }
+            latestLandmarks = results.multiHandLandmarks;
+        });
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                if (!isCameraReady) {
+                    isCameraReady = true;
+                    checkReadyState();
+                }
+                // Send frame to mediapipe
+                await hands.send({image: videoElement});
+            },
+            width: 640,
+            height: 480
+        });
+
+        let fallbackMode = false;
+
+        camera.start().catch(err => {
+            console.error("Camera error:", err);
+            fallbackMode = true;
+            const loadingText = document.getElementById('loading-text');
+            loadingText.innerText = "Camera not found. Falling back to Mouse/Touch mode.";
+            loadingText.classList.remove('text-yellow-400');
+            loadingText.classList.add('text-blue-400');
+            
+            // Allow starting without camera/model
+            setTimeout(() => {
+                checkReadyState();
+            }, 1500); // Brief delay so user reads the fallback message
+        });
+
+        function checkReadyState() {
+            if ((isCameraReady && isModelReady) || fallbackMode) {
+                const btn = document.getElementById('start-btn');
+                const loading = document.getElementById('loading-text');
+                loading.classList.add('hidden');
+                btn.classList.remove('hidden');
+                btn.disabled = false;
+            }
+        }
+
+        // --- Mouse / Touch Fallback ---
+        function handleInteraction(clientX, clientY) {
+            if (gameState !== 'PLAYING') return;
+            const rect = canvas.getBoundingClientRect();
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+            
+            // Create a small visual click effect
+            createExplosion(x, y, '#FFFFFF');
+
+            for (let i = 0; i < balloons.length; i++) {
+                const b = balloons[i];
+                const distToBalloon = Math.hypot(b.x - x, b.y - y);
+                if (distToBalloon < b.radius + 15) {
+                    handleBalloonPop(b);
+                    break; // Only pop one at a time
+                }
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            handleInteraction(e.clientX, e.clientY);
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            if(e.touches.length > 0) {
+                handleInteraction(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, {passive: false});
+
+        // --- Helper for drawing text with outline ---
+        function drawStrokedText(ctx, text, x, y, font, fill, stroke, lineWidth) {
+            ctx.font = font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.lineWidth = lineWidth;
+            ctx.strokeStyle = stroke;
+            ctx.strokeText(text, x, y);
+            ctx.fillStyle = fill;
+            ctx.fillText(text, x, y);
+        }
+
+        // --- Main Game Loop (Decoupled from Camera Framerate) ---
+        function gameLoop(timestamp) {
+            if (gameState !== 'PLAYING') return; // Stop loop if not playing
+
+            // Calculate Delta Time
+            const dt = (timestamp - lastFrameTime) / 1000;
+            lastFrameTime = timestamp;
+
+            // Clear Canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Draw Mirrored Webcam Video Background
+            if (!fallbackMode && videoElement.readyState >= 2) {
+                ctx.save();
+                ctx.scale(-1, 1);
+                // Draw mirrored image filling the canvas
+                ctx.drawImage(videoElement, -canvas.width, 0, canvas.width, canvas.height);
+                ctx.restore();
+            } else {
+                // Fallback background
+                const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                grad.addColorStop(0, '#1a1a2e');
+                grad.addColorStop(1, '#16213e');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                if (fallbackMode && gameState === 'PLAYING') {
+                    // Subtle instruction
+                    ctx.fillStyle = 'rgba(255,255,255,0.2)';
+                    ctx.font = '20px "Nunito"';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Tap or Click to Pop!', canvas.width / 2, canvas.height - 40);
+                }
+            }
+
+            // 2. Update & Draw Game Entities
+            
+            // Timer update
+            timeLeft -= dt;
+            if (timeLeft <= 0) {
+                showResults();
+                return;
+            }
+
+            // Balloons
+            balloons.forEach((b) => {
+                // Update
+                b.y -= b.speedY;
+                // Wrap around to bottom if off screen top
+                if (b.y < -b.radius * 2) {
+                    b.y = canvas.height + b.radius;
+                    // Slightly shuffle x position on wrap
+                    b.x += (Math.random() - 0.5) * 50; 
+                    // Clamp X
+                    b.x = Math.max(b.radius, Math.min(canvas.width - b.radius, b.x));
+                }
+
+                // Draw String
+                ctx.beginPath();
+                ctx.moveTo(b.x, b.y + b.radius);
+                ctx.quadraticCurveTo(b.x - 15, b.y + b.radius + 30, b.x + 10, b.y + b.radius + 60);
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // Draw Balloon Body
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+                ctx.fillStyle = b.color;
+                ctx.fill();
+                
+                // Highlight
+                ctx.beginPath();
+                ctx.arc(b.x - b.radius*0.3, b.y - b.radius*0.3, b.radius*0.2, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.fill();
+
+                // Text
+                const fontSize = Math.min(24, b.radius * 0.6);
+                drawStrokedText(ctx, b.text, b.x, b.y, `bold ${fontSize}px "Nunito", sans-serif`, 'white', 'rgba(0,0,0,0.6)', 4);
+            });
+
+            // Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2; // Gravity
+                p.life -= 0.02;
+
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.globalAlpha = p.life;
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // Floating Texts
+            for (let i = floatingTexts.length - 1; i >= 0; i--) {
+                let f = floatingTexts[i];
+                f.y -= 2;
+                f.life -= 0.02;
+
+                if (f.life <= 0) {
+                    floatingTexts.splice(i, 1);
+                } else {
+                    ctx.globalAlpha = f.life;
+                    drawStrokedText(ctx, f.text, f.x, f.y, '32px "Fredoka One", cursive', f.color, 'black', 5);
+                }
+            }
+            ctx.globalAlpha = 1.0;
+
+            // 3. UI Layer Render (Over video and entities)
+            
+            // Top HUD Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, 110);
+
+            // Question Text
+            if (currentQuestion) {
+                const qSize = canvas.width < 600 ? 20 : 36;
+                drawStrokedText(ctx, currentQuestion.q, canvas.width / 2, 40, `${qSize}px "Fredoka One", cursive`, 'white', '#000', 5);
+            }
+
+            // Timer
+            const timerColor = timeLeft <= 10 ? '#FF595E' : '#FFCA3A';
+            drawStrokedText(ctx, `Time: ${Math.ceil(timeLeft)}`, canvas.width / 2, 85, '28px "Fredoka One", cursive', timerColor, '#000', 5);
+
+            // Score & Combo (Left Side)
+            ctx.textAlign = 'left';
+            drawStrokedText(ctx, `Score: ${score}`, 20, 40, '26px "Fredoka One", cursive', 'white', '#000', 5);
+            drawStrokedText(ctx, `Combo: x${combo}`, 20, 85, '22px "Fredoka One", cursive', combo > 1 ? '#8AC926' : 'white', '#000', 5);
+
+            // 4. Hand Tracking & Gestures
+            if (latestLandmarks && latestLandmarks.length > 0) {
+                const hand = latestLandmarks[0];
+                
+                // Landmarks: 0: Wrist, 4: Thumb Tip, 8: Index Tip, 9: Middle Finger Base
+                const wrist = hand[0];
+                const middleBase = hand[9];
+                const thumbTip = hand[4];
+                const indexTip = hand[8];
+
+                // Helper to map normalized coordinate to canvas (X is mirrored)
+                const getCanvasPt = (lm) => {
+                    return {
+                        x: (1 - lm.x) * canvas.width,
+                        y: lm.y * canvas.height
+                    };
+                };
+
+                const ptWrist = getCanvasPt(wrist);
+                const ptMidBase = getCanvasPt(middleBase);
+                const ptThumb = getCanvasPt(thumbTip);
+                const ptIndex = getCanvasPt(indexTip);
+
+                // Draw Hand Skeleton / Points for feedback
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.fillStyle = '#1982C4';
+                ctx.lineWidth = 2;
+                hand.forEach(lm => {
+                    const pt = getCanvasPt(lm);
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, 4, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+
+                // Calculate distances
+                const palmSize = Math.hypot(ptWrist.x - ptMidBase.x, ptWrist.y - ptMidBase.y);
+                const pinchDist = Math.hypot(ptIndex.x - ptThumb.x, ptIndex.y - ptThumb.y);
+                
+                // Determine Pinch based on ratio (accounts for depth/distance from camera)
+                const isPinching = (pinchDist / palmSize) < 0.25;
+
+                // Center of pinch cursor
+                const cursorX = (ptThumb.x + ptIndex.x) / 2;
+                const cursorY = (ptThumb.y + ptIndex.y) / 2;
+
+                // Draw Cursor Reticle
+                ctx.beginPath();
+                ctx.arc(cursorX, cursorY, isPinching ? 12 : 24, 0, Math.PI * 2);
+                ctx.fillStyle = isPinching ? 'rgba(255, 89, 94, 0.8)' : 'rgba(255, 202, 58, 0.5)';
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // Gesture Action logic
+                if (isPinching && !wasPinching) {
+                    // Trigger Pop detection
+                    for (let i = 0; i < balloons.length; i++) {
+                        const b = balloons[i];
+                        const distToBalloon = Math.hypot(b.x - cursorX, b.y - cursorY);
+                        if (distToBalloon < b.radius + 15) { // +15 forgiveness padding
+                            handleBalloonPop(b);
+                            break; // Only pop one at a time
+                        }
+                    }
+                }
+                
+                wasPinching = isPinching;
+
+            } else {
+                wasPinching = false;
+            }
+
+            // Loop
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Event Listeners ---
+        document.getElementById('start-btn').addEventListener('click', startGame);
+        document.getElementById('restart-btn').addEventListener('click', startGame);
+
+    </script>
+</body>
+</html>
